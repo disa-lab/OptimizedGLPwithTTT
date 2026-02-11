@@ -28,5 +28,5 @@ python mutated_log_generation_accuracy.py
 For both RQ3 and RQ5, run the following command.
 
 ```
-python rq3.py
+python token_classification_accuracy.py
 ```
