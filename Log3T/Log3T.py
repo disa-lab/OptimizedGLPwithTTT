@@ -1,4 +1,5 @@
-
+import os
+import json
 from pytorch_pretrained_bert import BertTokenizer
 import torch
 import random
@@ -10,6 +11,7 @@ import numpy as np
 import csv
 from Log3T import preprocess
 
+MAX_NUM = 4
 tokenizer = BertTokenizer.from_pretrained('Vocab/Vocab.txt')
 vocab_size=len(tokenizer.vocab)
 maxlen = 128 # max number of words in a log
@@ -26,6 +28,10 @@ torch.manual_seed(0)
 torch.cuda.manual_seed(0)
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+def plg(lg):
+    print("{\n" + "\n".join("{!r}: {!r},".format(k, v) for k, v in lg.items()) + "\n}")
+    pass
 
 
 class MyDataSet(Data.Dataset):
@@ -79,6 +85,30 @@ def data_format(vocab_index_list,log_split_words):
         input_ids.extend([0] * n_pad)
         train_data.append([input_ids, variable_tokens])
     return train_data
+
+
+def is_pure_number(s):
+    for b in [0,8,16]:
+        for func in (float, lambda x: int(x, b)):
+            try:
+                func(s)
+                return True
+            except ValueError:
+                continue
+    return False
+
+def is_number(s):
+    if is_pure_number(s) or all([ is_pure_number(_s) for _s in re.split(r'[\/]',s) ]):
+        return True
+    n_digits = 0
+    n_alphas = 0
+    for c in s:
+        if c.isalpha():
+            n_alphas+=1
+        elif c.isdigit():
+            n_digits+=1
+    return n_digits > n_alphas
+
 
 def tokenize_words(log):
     '''
@@ -176,7 +206,95 @@ def log_annotation(vocab_index_list,log_split_words,stage,variablelist):
             train_data.append([input_ids_clone, variable_tokens])
     return train_data
 
-def log_to_model(rawlog,stage,regx,regx_use,dataset,variablelist):
+def _log_annotation(vocab_index_list,log_split_words,stage,variablelist,constantlist,use_optim):
+    '''
+    Function to assign logs with annotations (variable 1, constant 0) based on historical logs and imitated logs
+    '''
+    train_data = []
+    count_index = 0
+    vocab_size = len(variablelist)
+    while count_index < len(vocab_index_list):
+        tokens_value = vocab_index_list[count_index]
+        input_ids = tokens_value
+        lenth = len(log_split_words[count_index])
+        log = log_split_words[count_index]
+        if lenth >= maxlen:
+            input_ids = input_ids[:word_maxlen * maxlen]
+        cand_imitated_vpos = [i for i, token in enumerate(log) if i <= maxlen]
+        cand_imitated_cpos = [i for i, token in enumerate(log) if i <= maxlen]
+        common_variable = [i for i, token in enumerate(log) if token in variablelist]
+        common_constant = [i for i, token in enumerate(log) if token in constantlist]
+        cand_imitated_vpos = [x for x in cand_imitated_vpos if x not in common_variable]
+        cand_imitated_cpos = [x for x in cand_imitated_cpos if x not in common_constant]
+        random.shuffle(cand_imitated_vpos)
+        random.shuffle(cand_imitated_cpos)
+        count_index += 1
+        imitated_variable_num = 0
+        max_num = MAX_NUM   # The number of imitated variable generated in each log is up to 'max_num'
+        for i in range(max_num):
+            if use_optim:
+                odd_flag = i % 2==0
+            else:
+                odd_flag = True
+            input_ids_clone = input_ids.copy()
+            variable_tokens = [0] * word_maxlen * maxlen
+            if max_num == 4: variable_tokens = [-100] * word_maxlen * maxlen
+            for ind in common_variable:
+                for c in range(word_maxlen):
+                    if input_ids_clone[ind * word_maxlen + c] != 0:
+                        variable_tokens[ind * word_maxlen + c] = 1
+            for ind in common_constant:
+                for c in range(word_maxlen):
+                    if input_ids_clone[ind * word_maxlen + c] != 0:
+                        variable_tokens[ind * word_maxlen + c] = 0
+            if stage == 'train_without_imitation':
+                n_pad = maxlen * word_maxlen - len(input_ids_clone)
+                input_ids_clone.extend([0] * n_pad)
+                train_data.append([input_ids_clone, variable_tokens])
+                continue
+            imitated_variable_count = 0
+            last_pos = []
+            if len(cand_imitated_vpos) == 0:
+                break
+            if odd_flag:
+                _cand_pos = cand_imitated_vpos[:len(cand_imitated_vpos)]
+            else:
+                _cand_pos = cand_imitated_cpos[:len(cand_imitated_cpos)]
+            for id_pos in _cand_pos:
+                if odd_flag:
+                    random.shuffle(cand_imitated_vpos)
+                else:
+                    random.shuffle(cand_imitated_cpos)
+                if id_pos in last_pos:
+                    continue
+                word_pos = id_pos
+                id_pos = word_pos * word_maxlen
+                last_pos.append(word_pos)
+                if odd_flag:
+                    replace_variable = variablelist[random.randint(0, len(variablelist) - 1)]
+                else:
+                    replace_variable = constantlist[random.randint(0, len(constantlist) - 1)]
+                tokenized_text = tokenizer.tokenize(replace_variable)
+                variable_ids = tokenizer.convert_tokens_to_ids(tokenized_text)
+                if word_maxlen >= len(variable_ids):
+                    looptimes = len(variable_ids)
+                else:
+                    looptimes = word_maxlen
+                for i in range(looptimes):
+                    if variable_ids[i] != 0:
+                        variable_tokens[id_pos + i] = 1 if odd_flag else 0
+                        input_ids_clone[id_pos + i] = variable_ids[i]
+                    else:
+                        break
+                if imitated_variable_count >= imitated_variable_num:
+                    break
+                imitated_variable_count += 1
+            n_pad = maxlen * word_maxlen - len(input_ids_clone)
+            input_ids_clone.extend([0] * n_pad)
+            train_data.append([input_ids_clone, variable_tokens])
+    return train_data
+
+def log_to_model(rawlog,stage,regx,regx_use,dataset,variablelist=[],constantlist=[],use_optim=False):
     '''
     Function make log ready to feed into model, and generate log list with split words
 
@@ -216,7 +334,8 @@ def log_to_model(rawlog,stage,regx,regx_use,dataset,variablelist):
                 tokens_index = tokenize_words(log)
                 vocab_index_list.append(tokens_index)
                 log_sentence.append(log)
-            train_data=log_annotation(vocab_index_list,log_split_words,stage,variablelist)
+            # train_data=log_annotation(vocab_index_list,log_split_words,stage,variablelist)
+            train_data=_log_annotation(vocab_index_list,log_split_words,stage,variablelist,constantlist,use_optim)
 
     return train_data, log_sentence
 
@@ -233,16 +352,14 @@ def train(log_data,epoch_n,output,model):
     '''
     model.to(device)
     train_data=log_data
-    input_ids, masked_tokens, masked_pos, = zip(*train_data)
+    input_ids, masked_tokens, = zip(*train_data)
     input_ids, masked_tokens, = \
         torch.LongTensor(input_ids), torch.LongTensor(masked_tokens),
     loader = Data.DataLoader(MyDataSet(input_ids, masked_tokens), batch_size, True)
     criterion = nn.BCELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
-    d=0
     for epoch in range(epoch_n):
-        d+=1
-        print('=================now you are in =================epoch'+ str(d))
+        print('=================now you are in =================epoch'+ str(epoch))
         for input_ids, masked_tokens in loader:
             input_ids, masked_tokens = input_ids.to(device), masked_tokens.to(device)
             logits_lm = model(input_ids, []).to(device)
@@ -261,10 +378,12 @@ def train(log_data,epoch_n,output,model):
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-    torch.save(model.state_dict(), 'torch_model/model'+ str(output))
+    # torch.save(model.state_dict(), 'torch_model1/model'+ str(output))
     print('============== Train finished==================')
 
-def online_parsing_withTTT(train_data,parse_data,log_sentence, threshold, ground_truth_list,modelpath,model,model2,model3):
+def online_parsing_withTTT(train_data,parse_data,log_sentence, threshold, ground_truth_list,
+                           modelpath,model,model2,model3, dataset,
+                           do_train=True,use_optim=False):
     '''
 
     Parameters
@@ -283,6 +402,7 @@ def online_parsing_withTTT(train_data,parse_data,log_sentence, threshold, ground
     -------
     Group accuracy
     '''
+    bs = 10
     torch.cuda.empty_cache()
     input_ids, masked_tokens = zip(*parse_data)
     input_ids, masked_tokens = \
@@ -290,13 +410,14 @@ def online_parsing_withTTT(train_data,parse_data,log_sentence, threshold, ground
     input_ids_train, masked_tokens_train = zip(*train_data)
     input_ids_train, masked_tokens_train = \
         torch.LongTensor(input_ids_train), torch.LongTensor(masked_tokens_train)
-    loader = Data.DataLoader(MyDataSet(input_ids, masked_tokens), 10, False)  # batchsize
-    loader_train = Data.DataLoader(MyDataSet(input_ids_train, masked_tokens_train), 30,
+    loader = Data.DataLoader(MyDataSet(input_ids, masked_tokens), bs, False)  # batchsize
+    loader_train = Data.DataLoader(MyDataSet(input_ids_train, masked_tokens_train), MAX_NUM*bs,
                                    False)  # this batchsize is num✖ times  by the last batchsize
     model = model.to(device)
     model2 = model2.to(device)
     model3 = model3.to(device)
-    model3.load_state_dict(torch.load(modelpath))
+    model.load_state_dict(torch.load(modelpath, weights_only=True))   # enan: it should train on real historic log, right?
+    model3.load_state_dict(torch.load(modelpath, weights_only=True))
     criterion = nn.BCELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
     log_group = {}
@@ -318,33 +439,46 @@ def online_parsing_withTTT(train_data,parse_data,log_sentence, threshold, ground
     GA_of_batches_withoutTTT = []
     GA_of_batches_origin = []
     first_round = 0
+    partial_constants = []
+    partial_constants_withoutTTT = []
+    partial_constants_origin = []
     for (input_ids, masked_tokens), (input_ids_train, masked_tokens_train) in zip(loader, loader_train):
 
         input_ids, masked_tokens = input_ids.to(device), masked_tokens.to(device)
         input_ids_train, masked_tokens_train = input_ids_train.to(device), masked_tokens_train.to(device)
-        logits_lm = model(input_ids_train, stage='train').to(device)
-        a = logits_lm.squeeze(-1)
-        b = input_ids_train.clone()
-        c = torch.where(b != 0, 1, 0)
-        d = a * c
-        mask = d > 0  #
-        x_selected = d[mask]  #
-        y_selected = masked_tokens_train[mask]
-        loss_lm = criterion(x_selected.to(device),
-                            y_selected.float()).to(
-            device)  # f
-        loss_lm = (loss_lm.float()).mean().to(device)
-        loss = loss_lm.to(device)
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
 
-        log_group, log_id, predict_1, predict_label = batch_parse(input_ids, masked_tokens, model,
+        if do_train:
+            for x in range(1):
+                logits_lm = model(input_ids_train, stage='train').to(device)
+                a = logits_lm.squeeze(-1)
+                b = input_ids_train.clone()
+                c = torch.where(b != 0, 1, 0)
+                d = a * c
+                e = torch.where(masked_tokens_train.clone() != -100, 1, 0)
+                # print(logits_lm.shape,a.shape,b.shape,c.shape)
+                d = a * c * e if use_optim else a*c
+                mask = d > 0  #
+                x_selected = d[mask]  #
+                y_selected = masked_tokens_train[mask]
+                loss_lm = criterion(x_selected.to(device),
+                                    y_selected.float()).to(
+                    device)  # f
+                loss_lm = (loss_lm.float()).mean().to(device)
+                loss = loss_lm.to(device)
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+
+        log_group, log_id, predict_1, predict_label, pc = _batch_parse(input_ids, masked_tokens, model,
                                                                          log_sentence, threshold, log_id,
                                                                          predict_label, predict_1, log_group,
                                                                          stage='train')
 
         group_with_template = template_update(log_group, log_sentence)
+        partial_constants.extend(pc)
+        # plg(log_group)
+        # plg(group_with_template)
+        # exit()
 
         GA = get_GA(group_with_template, ground_truth_list[0:log_id], sum=log_id)
         GA_of_batches.append(GA)
@@ -352,29 +486,26 @@ def online_parsing_withTTT(train_data,parse_data,log_sentence, threshold, ground
         if first_round == 0:
             first_round_parameter = model.state_dict()
             model2.load_state_dict(first_round_parameter)
-            log_group_witoutTTT, log_id_withoutTTT, predict_1_withoutTTT, predict_label_withoutTTT = batch_parse(
-                input_ids, masked_tokens, model2,
-                log_sentence, threshold, log_id_withoutTTT,
-                predict_label_withoutTTT, predict_1_withoutTTT,
-                log_group_witoutTTT, stage='train')
-            group_with_template_withoutTTT = template_update(log_group_witoutTTT, log_sentence)
+            # log_group_witoutTTT, log_id_withoutTTT, predict_1_withoutTTT, predict_label_withoutTTT,_ = _batch_parse(
+            #     input_ids, masked_tokens, model2,
+            #     log_sentence, threshold, log_id_withoutTTT,
+            #     predict_label_withoutTTT, predict_1_withoutTTT,
+            #     log_group_witoutTTT, stage='train')
+            # group_with_template_withoutTTT = template_update(log_group_witoutTTT, log_sentence)
+            # GA = get_GA(group_with_template_withoutTTT, ground_truth_list[0:log_id_withoutTTT], sum=log_id_withoutTTT)
+            # GA_of_batches_withoutTTT.append(GA)
+        # else:
+        log_group_witoutTTT, log_id_withoutTTT, predict_1_withoutTTT, predict_label_withoutTTT,pc_withoutTTT = _batch_parse(
+            input_ids, masked_tokens, model2,
+            log_sentence, threshold, log_id_withoutTTT,
+            predict_label_withoutTTT, predict_1_withoutTTT,
+            log_group_witoutTTT, stage='train')
+        group_with_template_withoutTTT = template_update(log_group_witoutTTT, log_sentence)
+        GA = get_GA(group_with_template_withoutTTT, ground_truth_list[0:log_id_withoutTTT], sum=log_id_withoutTTT)
+        GA_of_batches_withoutTTT.append(GA)
+        partial_constants_withoutTTT.extend(pc_withoutTTT)
 
-            GA = get_GA(group_with_template_withoutTTT, ground_truth_list[0:log_id_withoutTTT], sum=log_id_withoutTTT)
-            GA_of_batches_withoutTTT.append(GA)
-        else:
-
-            log_group_witoutTTT, log_id_withoutTTT, predict_1_withoutTTT, predict_label_withoutTTT = batch_parse(
-                input_ids, masked_tokens, model2,
-                log_sentence, threshold, log_id_withoutTTT,
-                predict_label_withoutTTT, predict_1_withoutTTT,
-                log_group_witoutTTT, stage='train')
-
-            group_with_template_withoutTTT = template_update(log_group_witoutTTT, log_sentence)
-
-            GA = get_GA(group_with_template_withoutTTT, ground_truth_list[0:log_id_withoutTTT], sum=log_id_withoutTTT)
-            GA_of_batches_withoutTTT.append(GA)
-
-        log_group_origin, log_id_origin, predict_1_origin, predict_label_origin = batch_parse(
+        log_group_origin, log_id_origin, predict_1_origin, predict_label_origin,pc_origin = _batch_parse(
             input_ids, masked_tokens, model3,
             log_sentence, threshold, log_id_origin,
             predict_label_origin, predict_1_origin,
@@ -383,10 +514,45 @@ def online_parsing_withTTT(train_data,parse_data,log_sentence, threshold, ground
         GA = get_GA(group_with_template_origin, ground_truth_list[0:log_id_origin],
                     sum=log_id_origin)
         GA_of_batches_origin.append(GA)
+        partial_constants_origin.extend(pc_origin)
         first_round += 1
     constant, variable = average_label_generate(ground_truth_list=ground_truth_list, log_sentence=log_sentence,
                                                 predict_label=predict_label)
-    return GA_of_batches, constant, variable, GA_of_batches_withoutTTT, GA_of_batches_origin
+    constant1, variable1 = average_label_generate(ground_truth_list=ground_truth_list, log_sentence=log_sentence,
+                                                predict_label=predict_label_withoutTTT)
+    constant2, variable2 = average_label_generate(ground_truth_list=ground_truth_list, log_sentence=log_sentence,
+                                                predict_label=predict_label_origin)
+
+
+    assert len(predict_label) == len(log_sentence) == len(partial_constants), f"{len(predict_label)} == {len(log_sentence)} == {len(partial_constants)}"
+    values = list()
+    for i in range(len(log_sentence)):
+        y_pred = [0 if word in partial_constants[i] else 1     # enan: shouldn't it be 0 for variables?
+                  for word in log_sentence[i]]
+        y_pred1 = [0 if word in partial_constants_withoutTTT[i] else 1
+                  for word in log_sentence[i]]
+        y_pred2 = [0 if word in partial_constants_origin[i] else 1
+                  for word in log_sentence[i]]
+        values.append({
+            "words":log_sentence[i],
+            "probs":predict_label[i],
+            "probs_withoutTTT":predict_label_withoutTTT[i],
+            "probs_origin":predict_label_origin[i],
+            "y_pred": y_pred,
+            "y_pred_withoutTTT": y_pred1,
+            "y_pred_origin": y_pred2,
+        })
+    dict_to_save = {"values": values}
+    probdir = "output/GeLT" if use_optim else "output/Log3T"
+    os.makedirs(probdir,exist_ok=True)
+    with  open(probdir / f"{dataset}.json", "w") as outfile:
+        json.dump(values, outfile)
+
+
+    # return group_with_template, GA_of_batches, constant, variable, constant1, variable1, constant2, variable2, GA_of_batches_withoutTTT, GA_of_batches_origin
+    return (group_with_template,group_with_template_withoutTTT,group_with_template_origin,
+            GA_of_batches,GA_of_batches_withoutTTT, GA_of_batches_origin,
+            constant, variable, constant1, variable1, constant2, variable2,)
 
 
 def online_parsing_withstandardTTT(train_data, train_data2,data,log_sentence, threshold,ground_truth_list,
@@ -517,7 +683,7 @@ def get_GA(group,ground_list,sum):
     GA=correct/sum
     return GA
 
-def parse(log_data,modelpath,log_sentence, threshold,log_group,logid,model):
+def parse(log_data,log_sentence, threshold,log_group,logid,model,model_untrained,do_grouping_first):
     '''
         parse log
 
@@ -540,14 +706,22 @@ def parse(log_data,modelpath,log_sentence, threshold,log_group,logid,model):
         input_ids, variable_tokens, = \
             torch.LongTensor(input_ids), torch.LongTensor(variable_tokens)
         loader = Data.DataLoader(MyDataSet(input_ids, variable_tokens), 64, False)
-        model.load_state_dict(torch.load(modelpath))
+        # if modelpath: model.load_state_dict(torch.load(modelpath))
         log_group.setdefault('initialkeywords#@!',[]).append(-1)
         log_id = 0
         predict_label=list()
         log_id=logid
         predict_1=[]
+        partial_constants = []
+        print("parsing starting")
         for input_ids, variable_tokens in loader:
-            log_group,log_id,predict_1,predict_label=batch_parse(input_ids,variable_tokens,model.to(device),log_sentence,threshold,log_id,predict_label,predict_1,log_group,stage='train')
+            log_group,log_id,predict_1,predict_label,pc=batch_parse(input_ids,variable_tokens,model.to(device),
+                                                                    log_sentence,threshold,log_id,predict_label,
+                                                                    predict_1,log_group,stage='train',
+                                                                    model_untrained=model_untrained.to(device),
+                                                                    do_grouping_first=do_grouping_first)
+            print('batch parsed')
+            partial_constants.extend(pc)
         # with open("log_messages.csv", "w", newline='') as f:
         #     writer = csv.writer(f)
         #     writer.writerows(log_sentence)
@@ -555,16 +729,79 @@ def parse(log_data,modelpath,log_sentence, threshold,log_group,logid,model):
         #     writer = csv.writer(f)
         #     writer.writerows(predict_1)
         group_with_template=template_update(log_group,log_sentence)
-        return log_group,group_with_template,predict_label
+        return log_group,group_with_template,predict_label,partial_constants
 
+def batch_parse(input_ids,variable_tokens,model,log_sentence,threshold,log_id,predict_label,predict_1,
+                 log_group,stage,model_untrained,do_grouping_first=False):
+    '''
+        parse this batch of log
+    '''
+    input_ids,_ = input_ids.to(device), variable_tokens.to(device)
+    logits_lm = model(input_ids,stage)
+    logits_lm1 = model_untrained(input_ids,stage)
+    predict_e = logits_lm.view(logits_lm.shape[0], -1)
+    predict_e1 = logits_lm1.view(logits_lm1.shape[0], -1)
+    partial_constants = []
+    for number in range(logits_lm.shape[0]):
+        log = log_sentence[log_id]
+        input_ids_this = input_ids[number].cpu().detach().numpy().tolist()
+        log = label_same_words(log)
+        true_length = len(log)
 
-def batch_parse(input_ids,variable_tokens,model,log_sentence,threshold,log_id,predict_label,predict_1,log_group,stage):
+        predict = predict_e[number]
+        predict_distrbution = predict.cpu().detach().numpy().tolist()
+        predict_for_words = list()
+        sum_pre = 0
+
+        for count in range(true_length):
+            count = count * word_maxlen
+            input_ids_this_wrod = input_ids_this[count:count + word_maxlen]
+            if 0 in input_ids_this_wrod:
+                zero_index = input_ids_this_wrod.index(0)
+            else:
+                zero_index = word_maxlen
+            if zero_index == 0:
+                predict_for_words.append(0)
+                continue
+            probablity = predict_distrbution[count:count + word_maxlen]
+            representative = max(probablity[0:zero_index])
+            sum_pre += representative
+            predict_for_words.append(representative)
+        predict_1.append(predict_for_words)
+        predict_label.append(predict_for_words)
+        sorted_predict = np.argsort(predict_for_words)
+        sorted_log = list()
+        index_u = list()
+        threshold_count = 0
+        partial_constant = list()
+        for index in sorted_predict:
+            sorted_log.append(log[index])
+        for index in sorted_predict:
+            if threshold_count >= threshold:
+                break
+            if not exclude_digits(log[index]):
+                new_index = index
+                for pi in range(index):
+                    if exclude_digits(log[pi]):
+                        new_index = new_index - 1
+                partial_constant.append(log[index])
+                index_u.append(index)
+                threshold_count += 1
+        if len(partial_constant) == 0:
+            partial_constant.append(log[0])
+        log_group = Log_partition(log_group, partial_constant, log, log_id)
+        log_id += 1
+        partial_constants.append(partial_constant)
+    return log_group,log_id,predict_1,predict_label, partial_constants
+
+def _batch_parse(input_ids,variable_tokens,model,log_sentence,threshold,log_id,predict_label,predict_1,log_group,stage):
     '''
         parse this batch of log
     '''
     input_ids,_ = input_ids.to(device), variable_tokens.to(device)
     logits_lm = model(input_ids,stage)
     predict_e = logits_lm.view(logits_lm.shape[0], -1)
+    partial_constants = []
     for number in range(logits_lm.shape[0]):
         log = log_sentence[log_id]
         input_ids_this = input_ids[number].cpu().detach().numpy().tolist()
@@ -611,27 +848,41 @@ def batch_parse(input_ids,variable_tokens,model,log_sentence,threshold,log_id,pr
         if len(partial_constant) == 0:
             partial_constant.append(log[0])
         log_group = Log_partition(log_group, partial_constant, log, log_id)
+        # print(log)
+        # plg(log_group)
         log_id += 1
-    return log_group,log_id,predict_1,predict_label
+        partial_constants.append(partial_constant)
+    return log_group,log_id,predict_1,predict_label, partial_constants
 
 def Log_partition(log_group,partial_constant,log,log_id):
     '''
     Function to group log belonging to the same event together
     '''
     canditate=[]
+    flag = False
+    # if log_id == 152:
+    #     flag = True
     for key in log_group.keys():
         template=list(key)
+        if flag: print(template)
         if word_comparison(partial_constant,template):
+            if flag: print('word_comparison')
             matched = template
             if not order_comparison(template,partial_constant,log):
+                if flag: print('not order_comparison')
                 continue
             if length_comparison(matched, log, partial_constant):
+                if flag: print('length comparison')
                 canditate.append(matched)  # template_group.setdefault(matched, []).append(log_id)
             else:
                 if consecutive_variable_detection(log, matched):
+                    if flag: print('consec comparison')
                     canditate.append(matched)
                 else:
                     continue
+    if flag: print(canditate)
+    # print(1)
+    # plg(log_group)
     if len(canditate) >=1:
         sim_list=[]
         for cand in canditate:
@@ -642,6 +893,8 @@ def Log_partition(log_group,partial_constant,log,log_id):
     else:
         partial_constant = log
         group_update(log_group,partial_constant,log_id,log,flag=1)
+    # print(1)
+    # plg(log_group)
     return log_group
 
 def sim(seq1, seq2):
@@ -751,7 +1004,8 @@ def group_update(log_group,template,appendvalue,log,flag):  #log_group,partial_c
             log_group[tuple(template)].append(appendvalue)
     else:
         template=tuple(template)
-        log_group[template]=[appendvalue]
+        # log_group[template]=[appendvalue]
+        log_group.setdefault(template, []).append(appendvalue)
 
 def word_comparison(partial_constant,template):
     '''
@@ -887,6 +1141,7 @@ def label_same_words(log):
     '''
     Function to assign different labels to the identical words in a log
     '''
+    return log
     for word in log:
         if log.count(word) > 1:
             for i in range(log.count(word)):
@@ -941,7 +1196,7 @@ def generate_imitated_variable(dataset):
     '''
     Function to generate imitated variable
     '''
-    variablelist=read_csv_to_list('Variableset/variablelist1'+dataset+'.csv')
+    variablelist=read_csv_to_list('Variableset/variablelist'+dataset+'.csv')
     new_list=[]
     for index,value in enumerate(variablelist):
         new_list.append(value)
@@ -987,15 +1242,18 @@ def variable_wordlist_generate(lastlist,log_sentences,ground_truth):
 
     The first 100 logs of 2k dataset in chronological order will be regarded as historical logs.
     '''
+    variablelist, constantlist = list(), list()
     #random.shuffle(log_sentences)
     for index,log in enumerate(log_sentences):
         for word in log:
-            if word not in ground_truth[index] and word not in lastlist:
-                lastlist.append(word)
+            if word not in ground_truth[index] and word not in variablelist:
+                variablelist.append(word)
+            if word in ground_truth[index] and word not in constantlist:
+                constantlist.append(word)
         if index >= 100:
             break
 
-    return lastlist
+    return variablelist, constantlist
 
 def pure_number_variable(lastlist,log_sentences,ground_truth):
     '''
@@ -1018,3 +1276,5 @@ def writefile(filename,content):
         writer = csv.writer(csvfile)
         for item in content:
             writer.writerow([item])
+
+

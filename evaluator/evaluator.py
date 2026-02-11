@@ -8,7 +8,7 @@ PS: Methods 'evaluate' and 'get_accuracy' are from LogPAI team. LogPAI team calc
 """
 
 import pandas as pd
-import scipy.misc
+import scipy.special
 from nltk.metrics.distance import edit_distance
 import numpy as np
 
@@ -61,13 +61,13 @@ def get_accuracy(series_groundtruth, series_parsedlog, debug=False):
     real_pairs = 0
     for count in series_groundtruth_valuecounts:
         if count > 1:
-            real_pairs += scipy.misc.comb(count, 2)
+            real_pairs += scipy.special.comb(count, 2)
 
     series_parsedlog_valuecounts = series_parsedlog.value_counts()
     parsed_pairs = 0
     for count in series_parsedlog_valuecounts:
         if count > 1:
-            parsed_pairs += scipy.misc.comb(count, 2)
+            parsed_pairs += scipy.special.comb(count, 2)
 
     accurate_pairs = 0
     accurate_events = 0 # determine how many lines are correctly parsed
@@ -85,7 +85,7 @@ def get_accuracy(series_groundtruth, series_parsedlog, debug=False):
             print('(parsed_eventId, groundtruth_eventId) =', error_eventIds, 'failed', logIds.size, 'messages')
         for count in series_groundtruth_logId_valuecounts:
             if count > 1:
-                accurate_pairs += scipy.misc.comb(count, 2)
+                accurate_pairs += scipy.special.comb(count, 2)
 
     precision = float(accurate_pairs) / parsed_pairs
     recall = float(accurate_pairs) / real_pairs
@@ -112,7 +112,7 @@ def get_editdistance(groundtruth,parsedlog):
     """
     edit_distance_result = []
     for i, j in zip(np.array(groundtruth.EventTemplate.values, dtype='str'),
-                    np.array(parsedlog.template.values, dtype='str')):
+                    np.array(parsedlog.EventTemplate.values, dtype='str')):
         edit_distance_result.append(edit_distance(i, j))
 
     edit_distance_result_mean = np.mean(edit_distance_result)

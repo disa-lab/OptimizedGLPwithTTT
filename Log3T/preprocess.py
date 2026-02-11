@@ -61,7 +61,7 @@ class format_log:
         self.df_log = self.log_to_dataframe(os.path.join(self.path, self.logName), regex, headers, self.log_format)
 
 
-def wordsplit(log,dataset,regx,regx_use):
+def wordsplit(log,dataset,regx=None,regx_use=False):
     '''
     Function to split the log to words using delimiters. If 'regx_use' is True, some words
     matched with 'regx' will be converted to '<*>'
@@ -127,3 +127,47 @@ def wordsplit(log,dataset,regx,regx_use):
             log = re.sub(ree, '<*>', log)
     log = re.split(' +', log)
     return log
+
+#  -- This is from LILAC ---------------------------------------------------
+
+def post_process_tokens(tokens, punc):
+    excluded_str = ['=', '|', '(', ')']
+    for i in range(len(tokens)):
+        if tokens[i].find("<*>") != -1:
+            tokens[i] = "<*>"
+        else:
+            new_str = ""
+            for s in tokens[i]:
+                if (s not in punc and s != ' ') or s in excluded_str:
+                    new_str += s
+            tokens[i] = new_str
+    return tokens
+
+def _wordsplit(message,dataset,regx=None,regx_use=False):
+    punc = "!\"#$%&'()+,-/:;=?@.[\]^_`{|}~"
+    splitters = "\s\\" + "\\".join(punc)
+    # splitter_regex = re.compile("([{}]+)".format(splitters))
+    splitter_regex = re.compile("([{}])".format(splitters))
+    tokens = re.split(splitter_regex, message)
+
+    tokens = list(filter(lambda x: x != "", tokens))
+    
+    #print("tokens: ", tokens)
+    tokens = post_process_tokens(tokens, punc)
+
+    tokens = [
+        token.strip()
+        for token in tokens
+        if token != "" and token != ' ' 
+    ]
+    tokens = [
+        token
+        for idx, token in enumerate(tokens)
+        if not (token == "<*>" and idx > 0 and tokens[idx - 1] == "<*>")
+    ]
+    #print("tokens: ", tokens)
+    #tokens = [token.strip() for token in message.split()]
+    #print(tokens)
+    return tokens
+
+#  -- This is from LILAC ---------------------------------------------------
