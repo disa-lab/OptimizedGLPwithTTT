@@ -1,5 +1,5 @@
 import sys
-sys.path.append('Log3T')
+sys.path.append('GeLT')
 
 from pathlib import Path
 import re
@@ -253,7 +253,6 @@ if __name__ == '__main__':
     logdir = Path('/local/home/enan/projects/loghub-2.0/')
     probpath = workdir / "probabilities5"
     probpath = workdir / "probabilities-16"
-    # probpath = Path("/local/home/enan/projects/Log3T/output/lp-log3t/Android/probabilities.json")
 
     type = '2k'
 

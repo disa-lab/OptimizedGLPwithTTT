@@ -1,9 +1,9 @@
 import datetime
-from Log3T import Log3T
+from GeLT import GeLT
 import pandas as pd
 from pytorch_pretrained_bert import BertTokenizer
 from Transfomer_encoder import transfomer_encoder
-from Log3T import preprocess
+from GeLT import preprocess
 import os
 from pathlib import Path
 
@@ -50,17 +50,17 @@ for dataset, setting in benchmark_settings.items():
         ground_file = logdir / dataset / '{}_{}.log_structured_corrected.csv'.format(dataset,data_type)
     ground_truth_read=pd.read_csv(ground_file)
     ground_truth_list=list(ground_truth_read['EventTemplate'])
-    variablelist=Log3T.read_csv_to_list('Variableset/variablelist1'+dataset+'.csv')
-    constantlist=Log3T.read_csv_to_list('Variableset/constantlist'+dataset+'.csv')
-    parse_data,log_sentence=Log3T.log_to_model(log_content,stage='parse',regx=[],regx_use=False,dataset=dataset,)
-    train_data,_=Log3T.log_to_model(log_content,stage='train',regx=setting['regex'],regx_use=False,
+    variablelist=GeLT.read_csv_to_list('Variableset/variablelist1'+dataset+'.csv')
+    constantlist=GeLT.read_csv_to_list('Variableset/constantlist'+dataset+'.csv')
+    parse_data,log_sentence=GeLT.log_to_model(log_content,stage='parse',regx=[],regx_use=False,dataset=dataset,)
+    train_data,_=GeLT.log_to_model(log_content,stage='train',regx=setting['regex'],regx_use=False,
                                         dataset=dataset,variablelist=variablelist,constantlist=constantlist,use_optim=args.use_optimized)
 
     # log_groups, PA_of_batches,constant,variable,constant1,variable1,constant2,variable2,PA_of_batches_withoutTTT,PA_of_batches_origin
     (log_groups, log_groups_without_TTT,log_groups_origin,
      PA_of_batches,PA_of_batches_withoutTTT,PA_of_batches_origin,
      constant,variable,constant1,variable1,constant2,variable2
-    ) = Log3T.online_parsing_withTTT(train_data=train_data,parse_data=parse_data,log_sentence=log_sentence,
+    ) = GeLT.online_parsing_withTTT(train_data=train_data,parse_data=parse_data,log_sentence=log_sentence,
                                      threshold=setting['threshold'], ground_truth_list=ground_truth_list,
                                      modelpath=f'torch_model_100_5/model_{dataset}_2k', model=model, model2=model2,
                                      model3=model3, dataset=dataset, do_train=True, use_optim=args.use_optimized)

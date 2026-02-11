@@ -2,8 +2,8 @@ import re
 import os
 from pathlib import Path
 import datetime
-from Log3T import Log3T
-from Log3T import preprocess
+from GeLT import GeLT
+from GeLT import preprocess
 import pandas as pd
 from evaluator import evaluator
 import sys
@@ -61,8 +61,8 @@ for dataset, setting in benchmark_settings.items():
     template=pd.DataFrame()
     sentences = content.tolist()
     print(dataset)
-    log_data,log_sentence=Log3T.log_to_model(sentences,stage='parse',regx=[],regx_use=False,dataset=dataset,variablelist=[]) # 如果你想使用过滤器，可以在regx=""处添加,并且将regx_use改为True,过滤器的设计可以根据错误解析的结果进行设定
-    log_group,group_with_template,predict_label,partial_constants=Log3T.parse(log_data,log_sentence, setting['threshold'],{},0,model,model1,do_grouping_first)
+    log_data,log_sentence=GeLT.log_to_model(sentences,stage='parse',regx=[],regx_use=False,dataset=dataset,variablelist=[]) # 如果你想使用过滤器，可以在regx=""处添加,并且将regx_use改为True,过滤器的设计可以根据错误解析的结果进行设定
+    log_group,group_with_template,predict_label,partial_constants=GeLT.parse(log_data,log_sentence, setting['threshold'],{},0,model,model1,do_grouping_first)
 
     thres = 0.9
 
@@ -77,7 +77,7 @@ for dataset, setting in benchmark_settings.items():
         for idx in range(len(content)):
             templates[idx] = " ".join([
                 x
-                if predict_label[idx][i] < thres and not Log3T.is_number(x)
+                if predict_label[idx][i] < thres and not GeLT.is_number(x)
                 else "<*>"
                 for i, x in enumerate(preprocess.wordsplit(sentences[idx],dataset))
             ])

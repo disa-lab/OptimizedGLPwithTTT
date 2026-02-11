@@ -9,7 +9,7 @@ import copy
 import re
 import numpy as np
 import csv
-from Log3T import preprocess
+from GeLT import preprocess
 
 MAX_NUM = 4
 tokenizer = BertTokenizer.from_pretrained('Vocab/Vocab.txt')

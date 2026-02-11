@@ -1,10 +1,10 @@
 import sys
-sys.path.append('Log3T')
+sys.path.append('GeLT')
 
 import datetime
 from matplotlib import pyplot as plt
 from pathlib import Path
-from Log3T import Log3T
+from GeLT import GeLT
 import re
 import json
 import numpy as np
@@ -106,7 +106,6 @@ def read_csv_to_list(file_path):
     return data_list
 
 
-workdir = Path("/local/home/enan/projects/log3t-orig")
 models = [ 'log3t'] #, 'log3t-ttt' ]
 
 
@@ -200,10 +199,10 @@ if __name__ == '__main__':
             ground_file = logdir / dataset / '{}_{}.log_structured_corrected.csv'.format(dataset,data_type)
         ground_truth_read=pd.read_csv(ground_file)
         ground_truth_list=list(ground_truth_read['EventTemplate'])
-        variablelist=Log3T.read_csv_to_list('Variableset/variablelist1'+dataset+'.csv')
-        constantlist=Log3T.read_csv_to_list('Variableset/constantlist'+dataset+'.csv')
-        parse_data,log_sentence=Log3T.log_to_model(log_content,stage='parse',regx=[],regx_use=False,dataset=dataset,)
-        train_data,_=Log3T.log_to_model(log_content,stage='train',regx=setting['regex'],regx_use=False,
+        variablelist=GeLT.read_csv_to_list('Variableset/variablelist1'+dataset+'.csv')
+        constantlist=GeLT.read_csv_to_list('Variableset/constantlist'+dataset+'.csv')
+        parse_data,log_sentence=GeLT.log_to_model(log_content,stage='parse',regx=[],regx_use=False,dataset=dataset,)
+        train_data,_=GeLT.log_to_model(log_content,stage='train',regx=setting['regex'],regx_use=False,
                                             dataset=dataset,variablelist=variablelist,constantlist=constantlist)
     
         incorrect, correct = 0, 0
@@ -241,7 +240,7 @@ if __name__ == '__main__':
                         correct+=1
                     else:
                         incorrect+=1
-                    if Log3T.is_number(token):
+                    if GeLT.is_number(token):
                         numbers+=1
     
         total = correct+incorrect

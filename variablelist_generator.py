@@ -1,7 +1,7 @@
 from pathlib import Path
 import datetime
-from Log3T import Log3T
-from Log3T import preprocess
+from GeLT import GeLT
+from GeLT import preprocess
 import pandas as pd
 from evaluator import evaluator
 import sys
@@ -137,10 +137,10 @@ for dataset, setting in benchmark_settings.items():
     template=pd.DataFrame()
     sentences = content.tolist()
     print(dataset)
-    log_data,log_sentence=Log3T.log_to_model(sentences,stage='parse',regx=[],regx_use=False,dataset=dataset,variablelist=[])
-    variablelist, constantlist=Log3T.variable_wordlist_generate(lastlist=[],log_sentences=log_sentence,ground_truth=ground_truth_list)
-    Log3T.writefile(filename='Variableset/variablelist'+dataset+'.csv', content=variablelist)
-    Log3T.writefile(filename='Variableset/constantlist'+dataset+'.csv', content=constantlist)
-    Log3T.generate_imitated_variable(dataset)
+    log_data,log_sentence=GeLT.log_to_model(sentences,stage='parse',regx=[],regx_use=False,dataset=dataset,variablelist=[])
+    variablelist, constantlist=GeLT.variable_wordlist_generate(lastlist=[],log_sentences=log_sentence,ground_truth=ground_truth_list)
+    GeLT.writefile(filename='Variableset/variablelist'+dataset+'.csv', content=variablelist)
+    GeLT.writefile(filename='Variableset/constantlist'+dataset+'.csv', content=constantlist)
+    GeLT.generate_imitated_variable(dataset)
     end = datetime.datetime.now()
     print('time taken == #'+str(end-start))

@@ -1,10 +1,10 @@
 import datetime
-from Log3T import Log3T
+from GeLT import GeLT
 import pandas as pd
 from pytorch_pretrained_bert import BertTokenizer
 from Transfomer_encoder import transfomer_encoder
 from settings import benchmark_settings
-from Log3T import preprocess
+from GeLT import preprocess
 import os
 from pathlib import Path
 
@@ -40,10 +40,10 @@ for dataset, setting in benchmark_settings.items():
         ground_file = logdir / dataset / '{}_{}.log_structured_corrected.csv'.format(dataset,type)
     ground_truth_read=pd.read_csv(ground_file)
     ground_truth_list=list(ground_truth_read['EventTemplate'])
-    variablelist=Log3T.read_csv_to_list('Variableset/variablelist1'+dataset+'.csv')
-    constantlist=Log3T.read_csv_to_list('Variableset/constantlist'+dataset+'.csv')
-    parse_data,log_sentence=Log3T.log_to_model(log_content,stage='parse',regx=[],regx_use=False,dataset=dataset,)
-    train_data,_=Log3T.log_to_model(log_content,stage='train',regx=setting['regex'],regx_use=False,
+    variablelist=GeLT.read_csv_to_list('Variableset/variablelist1'+dataset+'.csv')
+    constantlist=GeLT.read_csv_to_list('Variableset/constantlist'+dataset+'.csv')
+    parse_data,log_sentence=GeLT.log_to_model(log_content,stage='parse',regx=[],regx_use=False,dataset=dataset,)
+    train_data,_=GeLT.log_to_model(log_content,stage='train',regx=setting['regex'],regx_use=False,
                                         dataset=dataset,variablelist=variablelist,constantlist=constantlist)
 
     incorrect, correct = 0, 0
@@ -81,7 +81,7 @@ for dataset, setting in benchmark_settings.items():
                     correct+=1
                 else:
                     incorrect+=1
-                if Log3T.is_number(token):
+                if GeLT.is_number(token):
                     numbers+=1
 
     total = correct+incorrect
