@@ -14,7 +14,7 @@ python Online_parsing_withTTT_demo.py --use_optimized   # Parse with GeLT
 The outputs will be in the `output/` folder, for parsing results both with and
 without Test-Time Training (TTT).
 
-# Assessing mutated log generation
+## Assessing mutated log generation
 
 To evaluate the accuracy of mutated log generation strategy of Log3T, we can
 run the following commands.
@@ -23,10 +23,14 @@ run the following commands.
 python mutated_log_generation_accuracy.py
 ```
 
-# Assessing token-level classification
+## Assessing token-level classification
 
 For both RQ3 and RQ5, run the following command.
 
 ```
 python token_classification_accuracy.py
 ```
+
+## Generating the graphs for RQ1/RQ6 and RQ3/RQ5
+
+Refer to the scripts `rq1_rq6.py` and `rq3_rq5.py`

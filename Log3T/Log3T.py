@@ -543,7 +543,7 @@ def online_parsing_withTTT(train_data,parse_data,log_sentence, threshold, ground
             "y_pred_origin": y_pred2,
         })
     dict_to_save = {"values": values}
-    probdir = "output/GeLT" if use_optim else "output/Log3T"
+    probdir = "output/GeLT/probs" if use_optim else "output/Log3T/probs"
     os.makedirs(probdir,exist_ok=True)
     with  open(probdir / f"{dataset}.json", "w") as outfile:
         json.dump(values, outfile)
