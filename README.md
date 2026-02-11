@@ -3,6 +3,7 @@
 This is a replication package.  The package includes the following contents.
 
 
+```
 .
 ├── analyze.py                              # Script for RQ3,RQ5
 ├── evaluator                               # Evaluator
@@ -20,6 +21,7 @@ This is a replication package.  The package includes the following contents.
 ├── Transfomer_encoder                      # Transformer encoder model
 ├── variablelist_generator.py               # Script for historical variable and constants generator
 ├── Variableset                             # Directory containing historical variables and constants
+```
 
 
 ## Parsing the benchmark log datasets
